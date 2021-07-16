@@ -38,14 +38,14 @@ pub trait Convertable {
     fn from_string_record(sr: &csv::StringRecord) -> Self;
 }
 
-struct Order {
+pub struct Order {
     clockAtArrival: i64,
     sequenceNo: i64,
     exchId: i8,
     securityType: i8,
     __isRepeated: i8,
     TransactTime: i64,
-    ChannelNo: i16,
+    ChannelNo: i32,
     ApplSeqNum: i64,
     SecurityID: i32,
     secid: i32,
@@ -66,7 +66,7 @@ impl Convertable for Order {
             securityType: row[3].parse::<i8>().unwrap(),
             __isRepeated: row[4].parse::<i8>().unwrap(),
             TransactTime: row[5].parse::<i64>().unwrap(),
-            ChannelNo: row[6].parse::<i16>().unwrap(),
+            ChannelNo: row[6].parse::<i32>().unwrap(),
             ApplSeqNum: row[7].parse::<i64>().unwrap(),
             SecurityID: row[8].parse::<i32>().unwrap(),
             secid: row[9].parse::<i32>().unwrap(),
@@ -80,7 +80,71 @@ impl Convertable for Order {
     }
 }
 
-fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>> {
+enum ExecuteType {
+    Cancelled,
+    Traded,
+    Unknown,
+}
+
+impl ExecuteType {
+    pub fn from_string(s: &str) -> ExecuteType {
+        match s {
+            "4" => ExecuteType::Cancelled,
+            "F" => ExecuteType::Traded,
+            _ => ExecuteType::Unknown,
+        }
+    }
+}
+
+pub struct Trade {
+    clockAtArrival: i64,
+    sequenceNo: i64,
+    exchId: i8,
+    securityType: i8,
+    __isRepeated: i8,
+    TransactTime: i64,
+    ChannelNo: i32,
+    ApplSeqNum: i64,
+    SecurityID: i32,
+    secid: i32,
+    mdSource: i8,
+    ExecType: ExecuteType,
+    TradeBSFlag: char,
+    __origTickSeq: i8,
+    TradePrice: i64,
+    TradeQty: i64,
+    TradeMoney: i64,
+    BidApplSeqNum: i64,
+    OfferApplSeqNum: i64,
+}
+
+impl Convertable for Trade {
+    fn from_string_record(row: &csv::StringRecord) -> Trade {
+        Trade {
+            clockAtArrival: row[0].parse::<i64>().unwrap(),
+            sequenceNo: row[1].parse::<i64>().unwrap(),
+            exchId: row[2].parse::<i8>().unwrap(),
+            securityType: row[3].parse::<i8>().unwrap(),
+            __isRepeated: row[4].parse::<i8>().unwrap(),
+            TransactTime: row[5].parse::<i64>().unwrap(),
+            ChannelNo: row[6].parse::<i32>().unwrap(),
+            ApplSeqNum: row[7].parse::<i64>().unwrap(),
+            SecurityID: row[8].parse::<i32>().unwrap(),
+            secid: row[9].parse::<i32>().unwrap(),
+            mdSource: row[10].parse::<i8>().unwrap(),
+            ExecType: ExecuteType::from_string(&row[11]),
+            TradeBSFlag: 'N',
+            __origTickSeq: row[13].parse::<i8>().unwrap(),
+            TradePrice: row[14].parse::<i64>().unwrap(),
+            TradeQty: row[15].parse::<i64>().unwrap(),
+            TradeMoney: row[16].parse::<i64>().unwrap(),
+            BidApplSeqNum: row[17].parse::<i64>().unwrap(),
+            OfferApplSeqNum: row[18].parse::<i64>().unwrap(),
+        }
+    }
+}
+
+pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>> {
     // Build the CSV reader and iterate over each record.
     let mut rdr = csv::Reader::from_path(filename)?;
     let mut result = Vec::new();
