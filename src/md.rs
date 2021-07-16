@@ -1,16 +1,18 @@
 use std::error::Error;
+use std::fmt::Display;
 
-enum Side {
-    Buy,
-    Sell,
+#[derive(Debug)]
+pub enum Side {
+    Bid,
+    Ask,
     Unknown,
 }
 
 impl Side {
     pub fn from_string(s: &str) -> Side {
         match s {
-            "1" => Side::Buy,
-            "2" => Side::Sell,
+            "1" => Side::Bid,
+            "2" => Side::Ask,
             _ => Side::Unknown,
         }
     }
@@ -39,7 +41,7 @@ pub trait Convertable {
 }
 
 pub struct Order {
-    clockAtArrival: i64,
+    pub clockAtArrival: i64,
     sequenceNo: i64,
     exchId: i8,
     securityType: i8,
@@ -47,14 +49,14 @@ pub struct Order {
     TransactTime: i64,
     ChannelNo: i32,
     ApplSeqNum: i64,
-    SecurityID: i32,
+    pub SecurityID: i32,
     secid: i32,
     mdSource: i8,
-    Side: Side,
+    pub Side: Side,
     OrderType: OrderType,
     __origTickSeq: i8,
-    Price: i64,
-    OrderQty: i64,
+    pub Price: i64,
+    pub OrderQty: i64,
 }
 
 impl Convertable for Order {
@@ -80,7 +82,7 @@ impl Convertable for Order {
     }
 }
 
-enum ExecuteType {
+pub enum ExecuteType {
     Cancelled,
     Traded,
     Unknown,
@@ -97,7 +99,7 @@ impl ExecuteType {
 }
 
 pub struct Trade {
-    clockAtArrival: i64,
+    pub clockAtArrival: i64,
     sequenceNo: i64,
     exchId: i8,
     securityType: i8,
@@ -105,14 +107,14 @@ pub struct Trade {
     TransactTime: i64,
     ChannelNo: i32,
     ApplSeqNum: i64,
-    SecurityID: i32,
+    pub SecurityID: i32,
     secid: i32,
     mdSource: i8,
-    ExecType: ExecuteType,
+    pub ExecType: ExecuteType,
     TradeBSFlag: char,
     __origTickSeq: i8,
-    TradePrice: i64,
-    TradeQty: i64,
+    pub TradePrice: i64,
+    pub TradeQty: i64,
     TradeMoney: i64,
     BidApplSeqNum: i64,
     OfferApplSeqNum: i64,
@@ -150,7 +152,7 @@ pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>
     let mut result = Vec::new();
 
     let mut records = rdr.records().into_iter();
-    if let Some(Ok(header)) = records.next() {
+    if let Some(Ok(_header)) = records.next() {
         for maybe_row in records {
             let row = maybe_row?;
             result.push(T::from_string_record(&row));
@@ -162,4 +164,43 @@ pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>
         "can not read from {}",
         filename
     )));
+}
+
+#[derive(Debug)]
+pub struct Snapshot {
+    pub ms: &'static str,
+    pub clock: i64,
+    pub threadId: i32,
+    pub clockAtArrival: i64,
+    pub sequenceNo: i64,
+    pub source: i8,
+    pub StockID: i32,
+    pub exchange: &'static str,
+    pub time: &'static str,
+    pub cum_volume: i64,
+    pub cum_amount: f64,
+    pub close: f64,
+    pub __origTickSeq: i8,
+    pub bid1p: f64,
+    pub bid2p: f64,
+    pub bid3p: f64,
+    pub bid4p: f64,
+    pub bid5p: f64,
+    pub bid1q: i64,
+    pub bid2q: i64,
+    pub bid3q: i64,
+    pub bid4q: i64,
+    pub bid5q: i64,
+    pub ask1p: f64,
+    pub ask2p: f64,
+    pub ask3p: f64,
+    pub ask4p: f64,
+    pub ask5p: f64,
+    pub ask1q: i64,
+    pub ask2q: i64,
+    pub ask3q: i64,
+    pub ask4q: i64,
+    pub ask5q: i64,
+    pub openPrice: f64,
+    pub numTrades: i64,
 }

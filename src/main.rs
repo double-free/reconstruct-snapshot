@@ -1,4 +1,5 @@
 mod md;
+mod snapshot_builder;
 use std::env;
 
 fn main() {
@@ -20,6 +21,14 @@ fn main() {
                 .takes_value(true),
         )
         .get_matches();
-    let orders = md::read_csv::<md::Order>(matches.value_of("order").unwrap());
-    let trades = md::read_csv::<md::Trade>(matches.value_of("trade").unwrap());
+    let orders = md::read_csv::<md::Order>(matches.value_of("order").unwrap()).unwrap();
+    let trades = md::read_csv::<md::Trade>(matches.value_of("trade").unwrap()).unwrap();
+
+    let mut builder = snapshot_builder::SnapshotBuilder::new(orders, trades);
+
+    let timestamps = vec![1587605991164248];
+    let snapshots = builder.build_snapshot(&timestamps);
+    for snapshot in snapshots {
+        println!("{:?}", snapshot);
+    }
 }
