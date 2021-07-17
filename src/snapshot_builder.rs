@@ -24,10 +24,12 @@ struct Book {
     pub cum_volume: i64,
     pub cum_amount: i64,
     pub num_trades: i64,
+    pub close: i64,      // latest trade price
+    pub open_price: i64, // first trade price
 }
 
 impl Book {
-    const PRICE_DIVISOR: f64 = 10000.0;
+    pub const PRICE_DIVISOR: f64 = 10000.0;
 
     pub fn new(inst_id: i32) -> Book {
         Book {
@@ -38,6 +40,8 @@ impl Book {
             cum_volume: 0,
             cum_amount: 0,
             num_trades: 0,
+            close: 0,
+            open_price: 0,
         }
     }
 
@@ -121,6 +125,11 @@ impl Book {
                 self.num_trades += 1;
                 self.cum_volume += trade.TradeQty;
                 self.cum_amount += trade.TradeQty * trade.TradePrice;
+                self.close = trade.TradePrice;
+                if self.open_price == 0 {
+                    // only update once in a day
+                    self.open_price = trade.TradePrice;
+                }
             }
             _ => {}
         }
@@ -139,7 +148,7 @@ impl Book {
             time: "08:24:03.000",
             cum_volume: self.cum_volume,
             cum_amount: self.cum_amount as f64 / Book::PRICE_DIVISOR,
-            close: 0.0,
+            close: self.close as f64 / Book::PRICE_DIVISOR,
             __origTickSeq: -1,
             bid1p: self.bid_levels[0].price as f64 / Book::PRICE_DIVISOR,
             bid2p: self.bid_levels[1].price as f64 / Book::PRICE_DIVISOR,
@@ -161,7 +170,7 @@ impl Book {
             ask3q: self.ask_levels[2].quantity,
             ask4q: self.ask_levels[3].quantity,
             ask5q: self.ask_levels[4].quantity,
-            openPrice: 0.0,
+            openPrice: self.open_price as f64 / Book::PRICE_DIVISOR,
             numTrades: self.num_trades,
         }
     }
@@ -256,6 +265,8 @@ impl SnapshotBuilder {
             book.cum_volume = snapshot.cum_volume;
             book.cum_amount = (snapshot.cum_amount * Book::PRICE_DIVISOR) as i64;
             book.num_trades = snapshot.numTrades;
+            book.close = (snapshot.close * Book::PRICE_DIVISOR) as i64;
+            book.open_price = (snapshot.openPrice * Book::PRICE_DIVISOR) as i64;
             // for bids
             book.apply_change(
                 &md::Side::Bid,
