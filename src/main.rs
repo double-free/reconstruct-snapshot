@@ -102,7 +102,7 @@ fn main() {
         numTrades: 3493,
     };
 
-    builder.init(&vec![snapshot_2290, snapshot_2385]);
+    // builder.init(&vec![snapshot_2290, snapshot_2385]);
 
     let timestamps = vec![1587605991164248];
     let snapshots = builder.build_snapshot(&timestamps);

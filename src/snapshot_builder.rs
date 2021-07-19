@@ -1,6 +1,7 @@
 use crate::md;
-use std::cmp::Ordering;
+use std::cmp;
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 
 #[derive(Copy, Clone, Debug)]
 struct Level {
@@ -20,6 +21,10 @@ struct Book {
     bid_levels: VecDeque<Level>,
     ask_levels: VecDeque<Level>,
 
+    // key: ApplSeqNum of order
+    // value: order
+    orders_: HashMap<i64, Rc<md::Order>>,
+
     // some accumulated statics
     pub cum_volume: i64,
     pub cum_amount: i64,
@@ -37,6 +42,7 @@ impl Book {
             timestamp: 0,
             bid_levels: VecDeque::new(),
             ask_levels: VecDeque::new(),
+            orders_: HashMap::new(),
             cum_volume: 0,
             cum_amount: 0,
             num_trades: 0,
@@ -57,8 +63,8 @@ impl Book {
 
     pub fn apply_change(&mut self, side: &md::Side, price: i64, quantity: i64) {
         let (levels, aggressive_ordering) = match side {
-            md::Side::Bid => (&mut self.bid_levels, Ordering::Greater),
-            md::Side::Ask => (&mut self.ask_levels, Ordering::Less),
+            md::Side::Bid => (&mut self.bid_levels, cmp::Ordering::Greater),
+            md::Side::Ask => (&mut self.ask_levels, cmp::Ordering::Less),
             md::Side::Unknown => {
                 println!("Unknown side is impossible, skip");
                 return;
@@ -81,7 +87,7 @@ impl Book {
                 quantity: quantity,
             };
             println!(
-                "At timestamp {}, insert level {:?} at {} for {:?} side of instrument {}",
+                "At timestamp {}, insert {:?} at {} for {:?} side of instrument {}",
                 self.timestamp, &level, idx, side, self.inst_id
             );
             levels.insert(idx, level);
@@ -97,28 +103,47 @@ impl Book {
         if levels[idx].quantity <= 0 {
             levels.remove(idx);
         }
-
-        return;
     }
 
-    pub fn handle_order(&mut self, order: &md::Order) {
-        if self.timestamp >= order.clockAtArrival {
+    pub fn handle_order(&mut self, order: &Rc<md::Order>) {
+        if self.timestamp > order.clockAtArrival {
+            // it's possible that multiple message comes in 1 packet, do not use >=
             return;
         }
+        self.orders_.insert(order.ApplSeqNum, Rc::clone(order));
         self.timestamp = order.clockAtArrival;
         self.apply_change(&order.Side, order.Price, order.OrderQty);
+
+        if self.timestamp >= 1587605144816537 && self.crossed() {
+            // book crossed, trigger trade
+            self.handle_cross();
+        }
+    }
+
+    fn crossed(&self) -> bool {
+        if self.ask_levels.is_empty() || self.bid_levels.is_empty() {
+            return false;
+        }
+
+        return self.ask_levels[0].price <= self.bid_levels[0].price;
+    }
+
+    fn handle_cross(&mut self) {
+        while self.crossed() {
+            let cross_quantity = cmp::min(self.bid_levels[0].quantity, self.ask_levels[0].quantity);
+            // note that the price is not trade price
+            // it only means to remove from level 0
+            self.apply_change(&md::Side::Bid, self.bid_levels[0].price, -cross_quantity);
+            self.apply_change(&md::Side::Ask, self.ask_levels[0].price, -cross_quantity);
+        }
     }
 
     pub fn handle_trade(&mut self, trade: &md::Trade) {
-        if self.timestamp >= trade.clockAtArrival {
+        if self.timestamp > trade.clockAtArrival {
+            // it's possible that multiple message comes in 1 packet, do not use >=
             return;
         }
         self.timestamp = trade.clockAtArrival;
-        self.apply_change(
-            &self.get_trade_side(trade.TradePrice),
-            trade.TradePrice,
-            -trade.TradeQty,
-        );
 
         match trade.ExecType {
             md::ExecuteType::Traded => {
@@ -130,8 +155,33 @@ impl Book {
                     // only update once in a day
                     self.open_price = trade.TradePrice;
                 }
+
+                // the trade is simulated in cross event
+                // we don't need to change the order book again
+                // a trade shall change both side
+                // self.apply_change(
+                //     md::Side::Bid,
+                //     trade.TradePrice,
+                //     -trade.TradeQty,
+                // );
+                // self.apply_change(
+                //     md::Side::Ask,
+                //     trade.TradePrice,
+                //     -trade.TradeQty,
+                // );
             }
-            _ => {}
+            md::ExecuteType::Cancelled => {
+                // we can only query the price
+                let (side, price) = if trade.BidApplSeqNum != 0 {
+                    (&md::Side::Bid, self.orders_[&trade.BidApplSeqNum].Price)
+                } else {
+                    (&md::Side::Ask, self.orders_[&trade.OfferApplSeqNum].Price)
+                };
+
+                self.apply_change(side, price, -trade.TradeQty);
+            }
+
+            md::ExecuteType::Unknown => {}
         }
     }
 
@@ -177,8 +227,8 @@ impl Book {
 }
 
 pub struct SnapshotBuilder {
-    orders_: Vec<md::Order>,
-    trades_: Vec<md::Trade>,
+    orders_: Vec<Rc<md::Order>>,
+    trades_: Vec<Rc<md::Trade>>,
 
     // key: stock id
     books_: HashMap<i32, Book>,
@@ -189,7 +239,7 @@ pub struct SnapshotBuilder {
 }
 
 impl SnapshotBuilder {
-    pub fn new(orders: Vec<md::Order>, trades: Vec<md::Trade>) -> SnapshotBuilder {
+    pub fn new(orders: Vec<Rc<md::Order>>, trades: Vec<Rc<md::Trade>>) -> SnapshotBuilder {
         SnapshotBuilder {
             orders_: orders,
             trades_: trades,
@@ -234,7 +284,8 @@ impl SnapshotBuilder {
             let order = &self.orders_[self.order_idx_];
             let trade = &self.trades_[self.trade_idx_];
 
-            if order.clockAtArrival < trade.clockAtArrival {
+            if order.clockAtArrival <= trade.clockAtArrival {
+                // can not be '<' because we need always process orders first
                 self.process_order();
             } else {
                 self.process_trade()

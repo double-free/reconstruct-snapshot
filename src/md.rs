@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum Side {
@@ -47,7 +48,7 @@ pub struct Order {
     __isRepeated: i8,
     TransactTime: i64,
     ChannelNo: i32,
-    ApplSeqNum: i64,
+    pub ApplSeqNum: i64,
     pub SecurityID: i32,
     secid: i32,
     mdSource: i8,
@@ -115,8 +116,8 @@ pub struct Trade {
     pub TradePrice: i64,
     pub TradeQty: i64,
     TradeMoney: i64,
-    BidApplSeqNum: i64,
-    OfferApplSeqNum: i64,
+    pub BidApplSeqNum: i64,
+    pub OfferApplSeqNum: i64,
 }
 
 impl Convertable for Trade {
@@ -145,7 +146,7 @@ impl Convertable for Trade {
     }
 }
 
-pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>> {
+pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<Rc<T>>, Box<dyn Error>> {
     // Build the CSV reader and iterate over each record.
     let mut rdr = csv::Reader::from_path(filename)?;
     let mut result = Vec::new();
@@ -154,7 +155,7 @@ pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<T>, Box<dyn Error>
     if let Some(Ok(_header)) = records.next() {
         for maybe_row in records {
             let row = maybe_row?;
-            result.push(T::from_string_record(&row));
+            result.push(Rc::new(T::from_string_record(&row)));
         }
         return Ok(result);
     }
