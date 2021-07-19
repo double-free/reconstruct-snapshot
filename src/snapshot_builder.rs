@@ -105,8 +105,11 @@ impl Book {
         self.orders_.insert(order.ApplSeqNum, Rc::clone(order));
 
         match order.OrderType {
-            md::OrderType::LimitOrder | md::OrderType::MarketOrder => {
+            md::OrderType::LimitOrder => {
                 self.apply_change(order.Side, order.Price, order.OrderQty);
+                if self.crossed() {
+                    self.handle_cross();
+                }
             }
             md::OrderType::BestOrder => {
                 match order.Side {
@@ -120,17 +123,25 @@ impl Book {
                     self.to_snapshot()
                 );
             }
+            md::OrderType::MarketOrder => {
+                assert!(!self.crossed());
+                self.apply_change(order.Side, order.Price, order.OrderQty);
+                let traded_quantity = self.handle_cross();
+                // remove the remaining quantity
+                if traded_quantity < order.OrderQty {
+                    self.apply_change(order.Side, order.Price, traded_quantity - order.OrderQty);
+                }
+            }
             md::OrderType::Unknown => {}
-        }
-
-        // last order timestamp before 09:25
-        if self.timestamp >= 1587605144280888 && self.crossed() {
-            // book crossed, trigger trade
-            self.handle_cross();
         }
     }
 
     fn crossed(&self) -> bool {
+        // last order timestamp before 09:25
+        if self.timestamp <= 1587605144280888 {
+            return false;
+        }
+
         if self.ask_levels.is_empty() || self.bid_levels.is_empty() {
             return false;
         }
@@ -138,7 +149,8 @@ impl Book {
         return self.ask_levels[0].price <= self.bid_levels[0].price;
     }
 
-    fn handle_cross(&mut self) {
+    fn handle_cross(&mut self) -> i64 {
+        let mut total_traded = 0;
         while self.crossed() {
             println!(
                 "handle simulated trade for {}, top bid = {:?}, top ask = {:?}",
@@ -150,7 +162,10 @@ impl Book {
             // it only means to remove from level 0
             self.apply_change(md::Side::Bid, self.bid_levels[0].price, -cross_quantity);
             self.apply_change(md::Side::Ask, self.ask_levels[0].price, -cross_quantity);
+            total_traded += cross_quantity;
         }
+
+        return total_traded;
     }
 
     pub fn handle_trade(&mut self, trade: &md::Trade) {
@@ -194,7 +209,7 @@ impl Book {
                 };
 
                 match order.OrderType {
-                    md::OrderType::MarketOrder | md::OrderType::LimitOrder => {
+                    md::OrderType::LimitOrder => {
                         self.apply_change(order.Side, order.Price, -trade.TradeQty);
                     }
                     md::OrderType::BestOrder => match order.Side {
@@ -202,7 +217,9 @@ impl Book {
                         md::Side::Ask => self.ask_best_order_quantity -= order.OrderQty,
                         md::Side::Unknown => {}
                     },
-                    md::OrderType::Unknown => {}
+                    md::OrderType::MarketOrder | md::OrderType::Unknown => {
+                        // not possible
+                    }
                 }
             }
 
@@ -210,7 +227,7 @@ impl Book {
         }
 
         // Debug
-        if self.num_trades == 50866 {
+        if self.num_trades == 4277 {
             println!(
                 "snapshot when 2385 has {} trade: {:?}",
                 self.num_trades,

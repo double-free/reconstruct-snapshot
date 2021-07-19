@@ -16,6 +16,13 @@ impl Side {
             _ => Side::Unknown,
         }
     }
+    pub fn opposite(&self) -> Side {
+        match self {
+            Side::Bid => Side::Ask,
+            Side::Ask => Side::Bid,
+            Side::Unknown => Side::Unknown,
+        }
+    }
 }
 
 pub enum OrderType {
