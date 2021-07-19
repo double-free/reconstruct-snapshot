@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::rc::Rc;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Side {
     Bid,
     Ask,
@@ -18,7 +18,7 @@ impl Side {
     }
 }
 
-enum OrderType {
+pub enum OrderType {
     MarketOrder,
     LimitOrder,
     BestOrder,
@@ -53,7 +53,7 @@ pub struct Order {
     secid: i32,
     mdSource: i8,
     pub Side: Side,
-    OrderType: OrderType,
+    pub OrderType: OrderType,
     __origTickSeq: i8,
     pub Price: i64,
     pub OrderQty: i64,

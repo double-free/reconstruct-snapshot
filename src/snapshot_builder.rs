@@ -12,8 +12,11 @@ struct Level {
 struct Book {
     inst_id: i32,
     pub timestamp: i64,
+    // this does not include best orders
     bid_levels: VecDeque<Level>,
+    bid_best_order_quantity: i64,
     ask_levels: VecDeque<Level>,
+    ask_best_order_quantity: i64,
 
     // key: ApplSeqNum of order
     // value: order
@@ -35,7 +38,9 @@ impl Book {
             inst_id: inst_id,
             timestamp: 0,
             bid_levels: VecDeque::new(),
+            bid_best_order_quantity: 0,
             ask_levels: VecDeque::new(),
+            ask_best_order_quantity: 0,
             orders_: HashMap::new(),
             cum_volume: 0,
             cum_amount: 0,
@@ -45,7 +50,7 @@ impl Book {
         }
     }
 
-    pub fn apply_change(&mut self, side: &md::Side, price: i64, quantity: i64) {
+    pub fn apply_change(&mut self, side: md::Side, price: i64, quantity: i64) {
         let (levels, aggressive_ordering) = match side {
             md::Side::Bid => (&mut self.bid_levels, cmp::Ordering::Greater),
             md::Side::Ask => (&mut self.ask_levels, cmp::Ordering::Less),
@@ -78,11 +83,12 @@ impl Book {
             return;
         }
 
+        let prev_level = levels[idx].clone();
         // level exists, update it
         levels[idx].quantity += quantity;
         println!(
-            "At timestamp {}, update level {} to {:?} for {:?} side of instrument {}",
-            self.timestamp, idx, &levels[idx], side, self.inst_id
+            "At timestamp {}, update level {} from {:?} to {:?} for {:?} side of instrument {}",
+            self.timestamp, idx, prev_level, &levels[idx], side, self.inst_id
         );
         if levels[idx].quantity <= 0 {
             levels.remove(idx);
@@ -94,9 +100,28 @@ impl Book {
             // it's possible that multiple message comes in 1 packet, do not use >=
             return;
         }
-        self.orders_.insert(order.ApplSeqNum, Rc::clone(order));
+
         self.timestamp = order.clockAtArrival;
-        self.apply_change(&order.Side, order.Price, order.OrderQty);
+        self.orders_.insert(order.ApplSeqNum, Rc::clone(order));
+
+        match order.OrderType {
+            md::OrderType::LimitOrder | md::OrderType::MarketOrder => {
+                self.apply_change(order.Side, order.Price, order.OrderQty);
+            }
+            md::OrderType::BestOrder => {
+                match order.Side {
+                    md::Side::Bid => self.bid_best_order_quantity += order.OrderQty,
+                    md::Side::Ask => self.ask_best_order_quantity += order.OrderQty,
+                    md::Side::Unknown => {}
+                }
+                println!(
+                    "snapshot when receive best order at {}: {:?}",
+                    order.clockAtArrival,
+                    self.to_snapshot()
+                );
+            }
+            md::OrderType::Unknown => {}
+        }
 
         // last order timestamp before 09:25
         if self.timestamp >= 1587605144280888 && self.crossed() {
@@ -119,11 +144,12 @@ impl Book {
                 "handle simulated trade for {}, top bid = {:?}, top ask = {:?}",
                 &self.inst_id, &self.bid_levels[0], &self.ask_levels[0]
             );
+
             let cross_quantity = cmp::min(self.bid_levels[0].quantity, self.ask_levels[0].quantity);
             // note that the price is not trade price
             // it only means to remove from level 0
-            self.apply_change(&md::Side::Bid, self.bid_levels[0].price, -cross_quantity);
-            self.apply_change(&md::Side::Ask, self.ask_levels[0].price, -cross_quantity);
+            self.apply_change(md::Side::Bid, self.bid_levels[0].price, -cross_quantity);
+            self.apply_change(md::Side::Ask, self.ask_levels[0].price, -cross_quantity);
         }
     }
 
@@ -161,16 +187,35 @@ impl Book {
             }
             md::ExecuteType::Cancelled => {
                 // we can only query the price
-                let (side, price) = if trade.BidApplSeqNum != 0 {
-                    (&md::Side::Bid, self.orders_[&trade.BidApplSeqNum].Price)
+                let order = if trade.BidApplSeqNum != 0 {
+                    &self.orders_[&trade.BidApplSeqNum]
                 } else {
-                    (&md::Side::Ask, self.orders_[&trade.OfferApplSeqNum].Price)
+                    &self.orders_[&trade.OfferApplSeqNum]
                 };
 
-                self.apply_change(side, price, -trade.TradeQty);
+                match order.OrderType {
+                    md::OrderType::MarketOrder | md::OrderType::LimitOrder => {
+                        self.apply_change(order.Side, order.Price, -trade.TradeQty);
+                    }
+                    md::OrderType::BestOrder => match order.Side {
+                        md::Side::Bid => self.bid_best_order_quantity -= order.OrderQty,
+                        md::Side::Ask => self.ask_best_order_quantity -= order.OrderQty,
+                        md::Side::Unknown => {}
+                    },
+                    md::OrderType::Unknown => {}
+                }
             }
 
             md::ExecuteType::Unknown => {}
+        }
+
+        // Debug
+        if self.num_trades == 50866 {
+            println!(
+                "snapshot when 2385 has {} trade: {:?}",
+                self.num_trades,
+                self.to_snapshot()
+            );
         }
     }
 
@@ -309,53 +354,53 @@ impl SnapshotBuilder {
             book.open_price = (snapshot.openPrice * Book::PRICE_DIVISOR) as i64;
             // for bids
             book.apply_change(
-                &md::Side::Bid,
+                md::Side::Bid,
                 (snapshot.bid1p * Book::PRICE_DIVISOR) as i64,
                 snapshot.bid1q,
             );
             book.apply_change(
-                &md::Side::Bid,
+                md::Side::Bid,
                 (snapshot.bid2p * Book::PRICE_DIVISOR) as i64,
                 snapshot.bid2q,
             );
             book.apply_change(
-                &md::Side::Bid,
+                md::Side::Bid,
                 (snapshot.bid3p * Book::PRICE_DIVISOR) as i64,
                 snapshot.bid3q,
             );
             book.apply_change(
-                &md::Side::Bid,
+                md::Side::Bid,
                 (snapshot.bid4p * Book::PRICE_DIVISOR) as i64,
                 snapshot.bid4q,
             );
             book.apply_change(
-                &md::Side::Bid,
+                md::Side::Bid,
                 (snapshot.bid5p * Book::PRICE_DIVISOR) as i64,
                 snapshot.bid5q,
             );
             // for asks
             book.apply_change(
-                &md::Side::Ask,
+                md::Side::Ask,
                 (snapshot.ask1p * Book::PRICE_DIVISOR) as i64,
                 snapshot.ask1q,
             );
             book.apply_change(
-                &md::Side::Ask,
+                md::Side::Ask,
                 (snapshot.ask2p * Book::PRICE_DIVISOR) as i64,
                 snapshot.ask2q,
             );
             book.apply_change(
-                &md::Side::Ask,
+                md::Side::Ask,
                 (snapshot.ask3p * Book::PRICE_DIVISOR) as i64,
                 snapshot.ask3q,
             );
             book.apply_change(
-                &md::Side::Ask,
+                md::Side::Ask,
                 (snapshot.ask4p * Book::PRICE_DIVISOR) as i64,
                 snapshot.ask4q,
             );
             book.apply_change(
-                &md::Side::Ask,
+                md::Side::Ask,
                 (snapshot.ask5p * Book::PRICE_DIVISOR) as i64,
                 snapshot.ask5q,
             );
