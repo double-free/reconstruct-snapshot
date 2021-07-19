@@ -9,12 +9,6 @@ struct Level {
     pub quantity: i64,
 }
 
-impl Level {
-    pub fn empty(&self) -> bool {
-        return self.quantity == 0;
-    }
-}
-
 struct Book {
     inst_id: i32,
     pub timestamp: i64,
@@ -49,16 +43,6 @@ impl Book {
             close: 0,
             open_price: 0,
         }
-    }
-
-    pub fn get_trade_side(&self, price: i64) -> md::Side {
-        if price <= self.bid_levels[0].price {
-            return md::Side::Bid;
-        }
-        if price >= self.ask_levels[0].price {
-            return md::Side::Ask;
-        }
-        return md::Side::Unknown;
     }
 
     pub fn apply_change(&mut self, side: &md::Side, price: i64, quantity: i64) {
@@ -114,7 +98,8 @@ impl Book {
         self.timestamp = order.clockAtArrival;
         self.apply_change(&order.Side, order.Price, order.OrderQty);
 
-        if self.timestamp >= 1587605144816537 && self.crossed() {
+        // last order timestamp before 09:25
+        if self.timestamp >= 1587605144280888 && self.crossed() {
             // book crossed, trigger trade
             self.handle_cross();
         }
@@ -130,6 +115,10 @@ impl Book {
 
     fn handle_cross(&mut self) {
         while self.crossed() {
+            println!(
+                "handle simulated trade for {}, top bid = {:?}, top ask = {:?}",
+                &self.inst_id, &self.bid_levels[0], &self.ask_levels[0]
+            );
             let cross_quantity = cmp::min(self.bid_levels[0].quantity, self.ask_levels[0].quantity);
             // note that the price is not trade price
             // it only means to remove from level 0

@@ -103,7 +103,8 @@ fn main() {
     };
 
     // builder.init(&vec![snapshot_2290, snapshot_2385]);
-
+    // 1587605991164248: 09:39:06
+    // 1587605145124998: 09:25:00
     let timestamps = vec![1587605991164248];
     let snapshots = builder.build_snapshot(&timestamps);
     for snapshot in snapshots {

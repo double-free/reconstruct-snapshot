@@ -151,19 +151,12 @@ pub fn read_csv<T: Convertable>(filename: &str) -> Result<Vec<Rc<T>>, Box<dyn Er
     let mut rdr = csv::Reader::from_path(filename)?;
     let mut result = Vec::new();
 
-    let mut records = rdr.records().into_iter();
-    if let Some(Ok(_header)) = records.next() {
-        for maybe_row in records {
-            let row = maybe_row?;
-            result.push(Rc::new(T::from_string_record(&row)));
-        }
-        return Ok(result);
+    let records = rdr.records().into_iter();
+    for maybe_row in records {
+        let row = maybe_row?;
+        result.push(Rc::new(T::from_string_record(&row)));
     }
-
-    return Err(Box::<dyn Error>::from(format!(
-        "can not read from {}",
-        filename
-    )));
+    return Ok(result);
 }
 
 #[derive(Debug)]
